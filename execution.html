@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SQL Playground - Execution Steps</title>
+    <link rel="stylesheet" href="styles.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.js"></script>
+    <script defer src="app.js"></script>
+  </head>
+  <body data-page="execution">
+    <main class="app-shell app-layout">
+      <aside class="sidebar-column">
+        <section class="card brand-card">
+          <p class="eyebrow">Interactive SQL Playground</p>
+          <p class="sidebar-title">SQL workspace</p>
+          <p class="sidebar-copy">
+            Keep the same navigation and query history visible while you inspect execution steps.
+          </p>
+        </section>
+
+        <section class="card sidebar-card">
+          <div class="card-header">
+            <h2>Workspace</h2>
+          </div>
+          <nav class="page-nav" aria-label="Playground pages">
+            <a class="page-link" href="index.html">Run Query</a>
+            <a class="page-link post-run-link" href="explanation.html">Breakdown</a>
+            <a class="page-link post-run-link active" href="execution.html">Execution</a>
+            <a class="page-link post-run-link" href="join.html">JOIN Visualizer</a>
+          </nav>
+        </section>
+
+        <section class="card sidebar-card">
+          <div class="card-header">
+            <h2>Query History</h2>
+            <button id="clearHistoryBtn" class="btn ghost btn-compact" type="button">Clear</button>
+          </div>
+          <div id="historyContainer" class="history-list">
+            <p class="empty">Your executed queries will appear here.</p>
+          </div>
+        </section>
+      </aside>
+
+      <section class="content-column">
+        <section class="card page-intro">
+          <div class="page-intro-layout">
+            <div class="page-intro-copy">
+              <h1>Step-by-Step Execution</h1>
+              <p class="subtitle">
+                Inspect how your query is processed in stages: FROM, WHERE, then SELECT.
+              </p>
+            </div>
+            <div class="difficulty-panel">
+              <p class="difficulty-label">Query Difficulty</p>
+              <p id="difficultyBadge" class="difficulty-badge">Waiting for a query</p>
+              <p id="difficultySummary" class="support-note">
+                Explanation, execution, and JOIN previews support basic SELECT queries best.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section class="card content-card">
+          <div class="card-header">
+            <h2>Execution Stages</h2>
+            <p id="metricsLabel" class="metrics"></p>
+          </div>
+          <p class="page-note">Use the Run Query page to change SQL. This page shows execution steps only.</p>
+          <div id="stepExecution" class="step-grid">
+            <p class="empty">Run a <code>SELECT</code> query to preview FROM, WHERE, and SELECT steps.</p>
+          </div>
+        </section>
+      </section>
+    </main>
+  </body>
+</html>
