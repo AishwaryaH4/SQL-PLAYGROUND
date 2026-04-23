@@ -8,12 +8,25 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.js"></script>
     <script defer src="app.js"></script>
   </head>
-  <body data-page="explanation">
+  <body class="theme-dark" data-page="explanation">
     <main class="app-shell app-layout">
       <aside class="sidebar-column">
         <section class="card brand-card">
-          <p class="eyebrow">Interactive SQL Playground</p>
-          <p class="sidebar-title">SQL workspace</p>
+          <div class="brand-bar">
+            <div class="brand-copy">
+              <p class="eyebrow">Interactive SQL Playground</p>
+              <p class="sidebar-title">SQL workspace</p>
+            </div>
+            <button
+              id="themeToggleBtn"
+              class="theme-toggle"
+              type="button"
+              aria-label="Switch to light theme"
+              title="Switch to light theme"
+            >
+              &#127769;
+            </button>
+          </div>
           <p class="sidebar-copy">
             Keep the same navigation and query history visible while you inspect the explanation.
           </p>

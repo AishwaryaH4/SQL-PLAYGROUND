@@ -36,12 +36,25 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.js"></script>
     <script defer src="app.js"></script>
   </head>
-  <body data-page="runner">
+  <body class="theme-dark" data-page="runner">
     <main class="app-shell app-layout">
       <aside class="sidebar-column">
         <section class="card brand-card">
-          <p class="eyebrow">Interactive SQL Playground</p>
-          <p class="sidebar-title">SQL workspace</p>
+          <div class="brand-bar">
+            <div class="brand-copy">
+              <p class="eyebrow">Interactive SQL Playground</p>
+              <p class="sidebar-title">SQL workspace</p>
+            </div>
+            <button
+              id="themeToggleBtn"
+              class="theme-toggle"
+              type="button"
+              aria-label="Switch to light theme"
+              title="Switch to light theme"
+            >
+              &#127769;
+            </button>
+          </div>
           <p class="sidebar-copy">
             Run queries, inspect the results, and move across the supporting views from one
             aligned shell.
@@ -108,7 +121,7 @@
             <h2>SQL Editor</h2>
           </div>
           <label class="sr-only" for="queryInput">SQL Query Editor</label>
-          <div class="editor-surface">
+          <div class="editor-surface editor-stack">
             <textarea
               id="queryInput"
               rows="10"

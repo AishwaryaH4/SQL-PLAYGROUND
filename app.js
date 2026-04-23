@@ -107,6 +107,7 @@ const STORAGE_QUERY_KEY = "sql_playground_last_query";
 const STORAGE_EXAMPLE_KEY = "sql_playground_example_index";
 const STORAGE_HISTORY_KEY = "sql_playground_query_history";
 const STORAGE_LAST_EXECUTION_KEY = "sql_playground_last_execution";
+const STORAGE_THEME_KEY = "sql_playground_theme";
 const SESSION_HAS_RUN_KEY = "sql_playground_has_run";
 const MAX_HISTORY_ITEMS = 15;
 const RESULT_PAGE_SIZE = 50;
@@ -115,6 +116,24 @@ const SQL_SCHEMA_HINTS = {
   courses: ["id", "title", "department", "credits"],
   enrollments: ["student_id", "course_id", "semester", "grade"]
 };
+const SQL_AUTOCOMPLETE_KEYWORDS = [
+  "SELECT",
+  "FROM",
+  "WHERE",
+  "JOIN",
+  "INNER JOIN",
+  "LEFT JOIN",
+  "RIGHT JOIN",
+  "GROUP BY",
+  "ORDER BY",
+  "HAVING",
+  "LIMIT",
+  "COUNT",
+  "AVG",
+  "SUM",
+  "MIN",
+  "MAX"
+];
 
 const state = {
   db: null,
@@ -149,6 +168,7 @@ const elements = {
   clearHistoryBtn: document.getElementById("clearHistoryBtn"),
   difficultyBadge: document.getElementById("difficultyBadge"),
   difficultySummary: document.getElementById("difficultySummary"),
+  themeToggleBtn: document.getElementById("themeToggleBtn"),
   editorCard: document.querySelector(".editor-card"),
   resultsCard: document.querySelector(".results-card")
 };
@@ -158,6 +178,8 @@ init().catch((error) => {
 });
 
 async function init() {
+  applyTheme(readStorage(STORAGE_THEME_KEY) || "dark");
+  setupThemeToggle();
   setStatus("Loading SQL engine...", "loading");
 
   const page = document.body?.dataset.page || "runner";
@@ -207,6 +229,7 @@ function initializeEditor(initialQuery) {
     return;
   }
 
+  setupSqlAutocomplete();
   state.editor = window.CodeMirror.fromTextArea(elements.queryInput, {
     mode: "text/x-sqlite",
     lineNumbers: true,
@@ -250,6 +273,25 @@ function initializeEditor(initialQuery) {
     if (!state.isHistoryNavigating) {
       resetHistoryNavigation();
     }
+  });
+  state.editor.on("inputRead", (editor, change) => {
+    const typedText = Array.isArray(change.text) ? change.text.join("") : "";
+    if (
+      !isSqlAutocompleteTrigger(typedText) ||
+      editor.state.completionActive ||
+      typeof editor.showHint !== "function"
+    ) {
+      return;
+    }
+
+    editor.showHint({
+      completeSingle: false,
+      hint: window.CodeMirror.hint.sql,
+      hintOptions: {
+        tables: SQL_SCHEMA_HINTS,
+        defaultTable: "students"
+      }
+    });
   });
 }
 
@@ -650,8 +692,8 @@ function renderJoinVisualizer(analysis) {
     leftMatches,
     rightMatches
   );
-  const leftTableMarkup = renderJoinTable(leftRows.columns, leftRows.rows, leftMatches);
-  const rightTableMarkup = renderJoinTable(rightRows.columns, rightRows.rows, rightMatches);
+  const leftTableMarkup = renderJoinTable("left", leftRows.columns, leftRows.rows, leftMatches);
+  const rightTableMarkup = renderJoinTable("right", rightRows.columns, rightRows.rows, rightMatches);
 
   elements.joinVisualizer.innerHTML = `
     <p class="join-meta">
@@ -670,6 +712,7 @@ function renderJoinVisualizer(analysis) {
       </section>
     </div>
   `;
+  setupJoinHoverInteractions();
   scheduleJoinConnectorRender();
 }
 
@@ -733,15 +776,7 @@ function analyzeQuery(rawQuery) {
 
   const primaryFromTable = parsePrimaryFrom(compact);
   const summary = buildSummary(selectClause, fromClause, whereClause, joins.length);
-  const difficulty = assessDifficulty({
-    compact,
-    joins,
-    whereClause,
-    groupClause,
-    havingClause,
-    orderClause,
-    limitClause
-  });
+  const difficulty = getQueryDifficulty(compact);
 
   const clauses = [];
   if (selectClause) {
@@ -801,43 +836,52 @@ function buildSummary(selectClause, fromClause, whereClause, joinCount) {
   return sentence;
 }
 
-function assessDifficulty({ compact, joins, whereClause, groupClause, havingClause, orderClause, limitClause }) {
-  const joinCount = joins.length;
-  const hasSubquery = /\(\s*select\b/i.test(compact);
-  const hasAggregate = /\b(count|avg|sum|min|max)\s*\(/i.test(compact);
-  const score =
-    1 +
-    (whereClause ? 0.35 : 0) +
-    joinCount * 0.9 +
-    (groupClause ? 0.95 : 0) +
-    (havingClause ? 0.7 : 0) +
-    (orderClause ? 0.25 : 0) +
-    (limitClause ? 0.15 : 0) +
-    (hasAggregate ? 0.6 : 0) +
-    (hasSubquery ? 1.45 : 0);
+function getQueryDifficulty(query) {
+  const normalizedQuery = normalizeSql(query).toLowerCase();
+  if (!normalizedQuery) {
+    return null;
+  }
 
-  if (score < 2.1) {
+  if (!normalizedQuery.startsWith("select")) {
     return {
-      label: "Basic",
-      tone: "basic",
-      summary: "Single-table lookup with light filtering or ordering."
+      label: "Statement",
+      tone: "statement",
+      color: "rgba(148, 163, 184, 0.18)",
+      textColor: "var(--text)",
+      summary: "This playground explains SELECT queries best, but you can still run other SQL statements."
     };
   }
 
-  if (score < 4.1) {
+  if (normalizedQuery.includes("join") && normalizedQuery.includes("group by")) {
+    return {
+      label: "Advanced",
+      tone: "advanced",
+      color: "#ef4444",
+      textColor: "#ffffff",
+      summary: "Combines JOINs with grouped analysis, which makes the query more relational and layered."
+    };
+  }
+
+  if (
+    normalizedQuery.includes("join") ||
+    normalizedQuery.includes("group by") ||
+    normalizedQuery.includes("having")
+  ) {
     return {
       label: "Intermediate",
       tone: "intermediate",
-      summary: "Uses JOINs, grouping, or a few layered clauses."
+      color: "#facc15",
+      textColor: "#111827",
+      summary: "Uses JOIN, GROUP BY, or HAVING, so it goes beyond a basic lookup."
     };
   }
 
   return {
-    label: "Advanced",
-    tone: "advanced",
-    summary: hasSubquery
-      ? "Includes subqueries or several layered operations."
-      : "Combines several clauses and heavier relational logic."
+    label: "Beginner",
+    tone: "beginner",
+    color: "#22c55e",
+    textColor: "#f8fafc",
+    summary: "Single-table lookup with light filtering, projection, or ordering."
   };
 }
 
@@ -965,8 +1009,11 @@ function renderJoinRelationshipMap(
     ? matches
       .slice(0, 8)
       .map(
-        (match) =>
-          `<span class="join-pair">${escapeHtml(leftTable)} row ${match.left} -> ${escapeHtml(rightTable)} row ${match.right}</span>`
+        (match) => {
+          const leftToken = buildJoinToken("left", match.left);
+          const rightToken = buildJoinToken("right", match.right);
+          return `<span class="join-pair" data-join="${leftToken} ${rightToken}">${escapeHtml(leftTable)} row ${match.left} -> ${escapeHtml(rightTable)} row ${match.right}</span>`;
+        }
       )
       .join("")
     : '<span class="join-pair">No matching pairs found in the current preview.</span>';
@@ -997,9 +1044,10 @@ function renderJoinNodeColumn(side, columns, rows, matchSet, tableName) {
       const preview = buildJoinNodePreview(visibleColumns, row.slice(1));
       const title = row[1] ?? `${tableName} row ${rowId}`;
       const className = matchSet.has(rowId) ? "join-node is-match" : "join-node";
+      const joinToken = buildJoinToken(side, rowId);
 
       return `
-        <article class="${className}" data-join-side="${side}" data-rowid="${rowId}">
+        <article class="${className}" data-join="${joinToken}" data-join-side="${side}" data-rowid="${rowId}">
           <span class="join-node-id">${escapeHtml(tableName)} row ${rowId}</span>
           <span class="join-node-title">${escapeHtml(String(title))}</span>
           <span class="join-node-meta">${escapeHtml(preview)}</span>
@@ -1079,16 +1127,18 @@ function renderJoinConnectorPaths() {
     const x2 = rightBounds.left - diagramBounds.left;
     const y2 = rightBounds.top + rightBounds.height / 2 - diagramBounds.top;
     const controlOffset = Math.max(32, (x2 - x1) / 2);
+    const leftToken = buildJoinToken("left", match.left);
+    const rightToken = buildJoinToken("right", match.right);
 
     paths.push(
-      `<path class="join-line" d="M ${x1} ${y1} C ${x1 + controlOffset} ${y1}, ${x2 - controlOffset} ${y2}, ${x2} ${y2}" />`
+      `<path class="join-line" data-join="${leftToken} ${rightToken}" d="M ${x1} ${y1} C ${x1 + controlOffset} ${y1}, ${x2 - controlOffset} ${y2}, ${x2} ${y2}" />`
     );
   });
 
   svg.innerHTML = paths.join("");
 }
 
-function renderJoinTable(columns, rows, matchSet) {
+function renderJoinTable(side, columns, rows, matchSet) {
   if (!rows.length) {
     return '<p class="empty">No rows.</p>';
   }
@@ -1106,7 +1156,8 @@ function renderJoinTable(columns, rows, matchSet) {
         .map((value) => `<td>${escapeHtml(String(value))}</td>`)
         .join("");
       const className = matchSet.has(rowId) ? "match-row" : "";
-      return `<tr class="${className}">${cells}</tr>`;
+      const joinToken = buildJoinToken(side, rowId);
+      return `<tr class="${className}" data-join="${joinToken}">${cells}</tr>`;
     })
     .join("");
 
@@ -1345,6 +1396,9 @@ function renderDifficultyMeter(analysis, options = {}) {
   if (!analysis || !analysis.difficulty) {
     elements.difficultyBadge.textContent = "Waiting for a query";
     elements.difficultyBadge.className = "difficulty-badge";
+    elements.difficultyBadge.style.removeProperty("background");
+    elements.difficultyBadge.style.removeProperty("border-color");
+    elements.difficultyBadge.style.removeProperty("color");
     elements.difficultySummary.textContent =
       "Explanation, execution, and JOIN previews support basic SELECT queries best.";
     return;
@@ -1352,11 +1406,206 @@ function renderDifficultyMeter(analysis, options = {}) {
 
   elements.difficultyBadge.textContent = analysis.difficulty.label;
   elements.difficultyBadge.className = `difficulty-badge difficulty-${analysis.difficulty.tone}`;
+  elements.difficultyBadge.style.background = analysis.difficulty.color;
+  elements.difficultyBadge.style.borderColor = analysis.difficulty.color;
+  elements.difficultyBadge.style.color = analysis.difficulty.textColor;
 
   const suffix = options.isLive
     ? "Preview based on the current editor draft. Explanation, execution, and JOIN previews support basic SELECT queries best."
     : "Explanation, execution, and JOIN previews support basic SELECT queries best.";
   elements.difficultySummary.textContent = `${analysis.difficulty.summary} ${suffix}`;
+}
+
+function setupThemeToggle() {
+  if (!elements.themeToggleBtn || elements.themeToggleBtn.dataset.bound === "1") {
+    updateThemeToggleButton(document.body?.classList.contains("theme-light") ? "light" : "dark");
+    return;
+  }
+
+  elements.themeToggleBtn.dataset.bound = "1";
+  updateThemeToggleButton(document.body?.classList.contains("theme-light") ? "light" : "dark");
+  elements.themeToggleBtn.addEventListener("click", () => {
+    const nextTheme = document.body?.classList.contains("theme-dark") ? "light" : "dark";
+    applyTheme(nextTheme);
+    writeStorage(STORAGE_THEME_KEY, nextTheme);
+  });
+}
+
+function applyTheme(theme) {
+  const nextTheme = theme === "light" ? "light" : "dark";
+  if (document.body) {
+    document.body.classList.toggle("theme-light", nextTheme === "light");
+    document.body.classList.toggle("theme-dark", nextTheme === "dark");
+  }
+  updateThemeToggleButton(nextTheme);
+}
+
+function updateThemeToggleButton(theme) {
+  if (!elements.themeToggleBtn) {
+    return;
+  }
+
+  const isLight = theme === "light";
+  elements.themeToggleBtn.textContent = isLight ? "\u2600" : "\uD83C\uDF19";
+  elements.themeToggleBtn.setAttribute(
+    "aria-label",
+    isLight ? "Switch to dark theme" : "Switch to light theme"
+  );
+  elements.themeToggleBtn.setAttribute("title", isLight ? "Switch to dark theme" : "Switch to light theme");
+}
+
+function setupJoinHoverInteractions() {
+  if (!elements.joinVisualizer) {
+    return;
+  }
+
+  const hoverTargets = elements.joinVisualizer.querySelectorAll(
+    '.join-node[data-join], .join-pair[data-join], tr[data-join]'
+  );
+  hoverTargets.forEach((target) => {
+    target.addEventListener("mouseenter", () => {
+      const joinTokens = getJoinTokensFromElement(target);
+      if (!joinTokens.length) {
+        return;
+      }
+      highlightJoin(joinTokens[0]);
+    });
+
+    target.addEventListener("mouseleave", () => {
+      const joinTokens = getJoinTokensFromElement(target);
+      if (!joinTokens.length) {
+        return;
+      }
+      removeHighlight(joinTokens[0]);
+    });
+  });
+}
+
+function highlightJoin(id) {
+  if (!elements.joinVisualizer) {
+    return;
+  }
+
+  clearJoinHighlights();
+  collectJoinTokensForHighlight(id).forEach((token) => {
+    elements.joinVisualizer
+      .querySelectorAll(`[data-join~="${token}"]`)
+      .forEach((element) => element.classList.add("active"));
+  });
+}
+
+function removeHighlight(_id) {
+  clearJoinHighlights();
+}
+
+function clearJoinHighlights() {
+  if (!elements.joinVisualizer) {
+    return;
+  }
+
+  elements.joinVisualizer.querySelectorAll("[data-join].active").forEach((element) => {
+    element.classList.remove("active");
+  });
+}
+
+function collectJoinTokensForHighlight(id) {
+  if (!elements.joinVisualizer) {
+    return [];
+  }
+
+  const directMatches = Array.from(elements.joinVisualizer.querySelectorAll(`[data-join~="${id}"]`));
+  const tokens = new Set([id]);
+  directMatches.forEach((element) => {
+    getJoinTokensFromElement(element).forEach((token) => tokens.add(token));
+  });
+  return Array.from(tokens);
+}
+
+function getJoinTokensFromElement(element) {
+  return (element.getAttribute("data-join") || "")
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+}
+
+function buildJoinToken(side, rowId) {
+  return `${side}:${rowId}`;
+}
+
+function setupSqlAutocomplete() {
+  if (
+    typeof window.CodeMirror?.registerHelper !== "function" ||
+    window.CodeMirror.__sqlPlaygroundHintsRegistered
+  ) {
+    return;
+  }
+
+  const builtInSqlHint = typeof window.CodeMirror.hint?.sql === "function"
+    ? window.CodeMirror.hint.sql
+    : null;
+
+  window.CodeMirror.registerHelper("hint", "sql", (editor, options) =>
+    buildSqlAutocompleteHints(editor, options, builtInSqlHint)
+  );
+  window.CodeMirror.__sqlPlaygroundHintsRegistered = true;
+}
+
+function buildSqlAutocompleteHints(editor, options, builtInSqlHint) {
+  const cursor = editor.getCursor();
+  const token = editor.getTokenAt(cursor);
+  const rawSearch = token.string.slice(0, Math.max(0, cursor.ch - token.start));
+  const trimmedSearch = rawSearch.trim().toUpperCase();
+  const builtInResult = typeof builtInSqlHint === "function" ? builtInSqlHint(editor, options) : null;
+  const builtInList = Array.isArray(builtInResult?.list)
+    ? builtInResult.list.map(normalizeHintItem)
+    : [];
+  const keywordList = SQL_AUTOCOMPLETE_KEYWORDS
+    .filter((keyword) => !trimmedSearch || keyword.startsWith(trimmedSearch))
+    .map((keyword) => ({
+      text: keyword,
+      displayText: keyword,
+      className: "sql-hint-keyword"
+    }));
+  const dedupedHints = [];
+  const seenHints = new Set();
+
+  [...keywordList, ...builtInList].forEach((item) => {
+    const normalized = normalizeHintItem(item);
+    if (!normalized.text) {
+      return;
+    }
+    const key = normalized.text.toLowerCase();
+    if (seenHints.has(key)) {
+      return;
+    }
+    seenHints.add(key);
+    dedupedHints.push(normalized);
+  });
+
+  return {
+    list: dedupedHints,
+    from: builtInResult?.from || window.CodeMirror.Pos(cursor.line, cursor.ch - rawSearch.length),
+    to: builtInResult?.to || window.CodeMirror.Pos(cursor.line, cursor.ch)
+  };
+}
+
+function normalizeHintItem(item) {
+  if (typeof item === "string") {
+    return {
+      text: item,
+      displayText: item
+    };
+  }
+
+  return {
+    ...item,
+    text: item?.text || item?.displayText || "",
+    displayText: item?.displayText || item?.text || ""
+  };
+}
+
+function isSqlAutocompleteTrigger(text) {
+  return /^[a-z.]$/i.test(text);
 }
 
 function buildSqlErrorGuidance(rawQuery, errorMessage) {
